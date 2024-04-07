@@ -16,11 +16,26 @@
 #define PROMPT "osh> "
 
 const int BUF_SIZE = 4096; // constant variable
+
+bool equal(char *a, char *b) { return (strcmp(a, b) == 0); }
+
+// read a line from console
+// return length of line read or -1 if failed to read
+// removes the \n on the line read
+int fetchline(char **line) {
+  size_t len = 0;
+  size_t n = getline(line, &len, stdin);
+  if (n > 0) {
+    (*line)[n - 1] = '\0';
+  }
+  return n;
+}
 // ============================================================================
 // Execute a child process.  
 // Returns -1
 // on failure.  On success, does not return to caller.
 // ============================================================================
+
 int child(char **args)
 {
   int i = 0;
@@ -87,6 +102,24 @@ void doCommand(char **args, int start, int end, bool waitfor)
 // always execute your commands in child. so pass in arguments there 
 // based on waitfor flag, in parent implement wait or not wait  based on & or ;  
 
+
+  // no pipe, regular command
+  pid_t pid = fork();
+  if (pid < 0) {
+      perror("Error during fork");
+      exit(EXIT_FAILURE);
+  } else if (pid == 0) { // Child process
+      execvp(args[start], args + start); // Execute the command
+      perror("execvp"); // Print error if execvp fails
+      exit(EXIT_FAILURE);
+  } else { // Parent process
+      if (waitfor) {
+          wait(NULL); // Wait for child process to finish if necessary
+      }
+      printf("Parent exiting\n"); // Parent done
+    }
+
+
 }
 
 // ============================================================================
@@ -105,53 +138,6 @@ int doPipe(char **args, int pipei)
 
 }
 
-
-
-// ============================================================================
-// Main loop for our Unix shell interpreter
-// ============================================================================
-int main()
-{
-  bool should_run = true;          // loop until false
-  char *line = calloc(1, MAXLINE); // holds user input
-
-  int start = 0; // index into args array
-  while (should_run)
-  {
-    printf(PROMPT);   // osh>
-    fflush(stdout);   // because no "\n"
-    fetchline(&line); // fetch NUL-terminated line
-
-    if (equal(line, ""))
-      continue; // blank line
-
-    if (equal(line, "exit"))
-    { // cheerio
-      should_run = false;
-      continue;
-    }
-
-    if (equal(line, "!!"))
-    {
-      // gethistory
-    }
-    
-    // process lines
-    char **args = tokenize(line); // split string into tokens
-    // loop over to find chunk of independent commands and execute
-    while (args[start] != NULL)
-    {
-      int end = strlen(line);
-      bool waitfor = parse(args, start, end);// parse() checks if current command ends with ";" or "&"  or nothing. if it does not end with anything treat it as ; or blocking call. Parse updates "end" to the index of the last token before ; or & or simply nothing
-      doCommand(args, start, end, waitfor);    // execute sub-command
-      start = end + 2;                         // next command
-    }
-    start = 0;              // next line
-    // remember current command into history
-  }
-  return 0;
-}
-
 // ============================================================================
 // Parse the shell command, starting at args[start].  For example, if
 // start = 0 and args holds:
@@ -167,7 +153,7 @@ bool parse(char **args, int start, int *end)
 {
   int i = start;
   while(args[i] != NULL){
-    if(args[i] == '&' || args[i] == ';'){
+    if(strcmp(args[i], '&') || strcmp(args[i], ';')){
       *end = i - 1;
       if(args[i] == ';'){
         return true;
@@ -199,3 +185,50 @@ char **tokenize(char *line)
   tokens[i] == NULL;
   return tokens;
 }
+
+// ============================================================================
+// Main loop for our Unix shell interpreter
+// ============================================================================
+int main()
+{
+  bool should_run = true;          // loop until false
+  char *line = calloc(1, MAXLINE); // holds user input
+
+  int start = 0; // index into args array
+  while (should_run)
+  {
+    printf(PROMPT);   // osh>
+    fflush(stdout);   // because no "\n"
+    fetchline(&line); // fetch NUL-terminated line
+
+    if (equal(line, ""))
+      continue; // blank line
+
+    if (equal(line, "exit"))
+    { // cheerio
+      should_run = false;
+      continue;
+    }
+
+    if (equal(line, "!!"))
+    {
+      // gethistory
+    }
+    
+    // process lines
+    char **args = tokenize(*line); // split string into tokens
+    // loop over to find chunk of independent commands and execute
+    while (args[start] != NULL)
+    {
+      int *end;
+      bool waitfor = parse(**args, start, *end);// parse() checks if current command ends with ";" or "&"  or nothing. if it does not end with anything treat it as ; or blocking call. Parse updates "end" to the index of the last token before ; or & or simply nothing
+      doCommand(args, start, end, waitfor);    // execute sub-command
+      start = end + 2;                         // next command
+    }
+    start = 0;              // next line
+    // remember current command into history
+  }
+  return 0;
+}
+
+
