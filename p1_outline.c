@@ -102,24 +102,24 @@ void doCommand(char **args, int start, int end, bool waitfor)
 // always execute your commands in child. so pass in arguments there 
 // based on waitfor flag, in parent implement wait or not wait  based on & or ;  
 
-
   // no pipe, regular command
   pid_t pid = fork();
   if (pid < 0) {
       perror("Error during fork");
       exit(EXIT_FAILURE);
   } else if (pid == 0) { // Child process
-      execvp(args[start], args + start); // Execute the command
-      perror("execvp"); // Print error if execvp fails
-      exit(EXIT_FAILURE);
+      int sub_array_size = end - start + 1;
+      // Allocate memory for the sub-array
+      char **sub_args = (char *)malloc(sub_array_size * sizeof(char*));
+      // Copy elements from the original array to the sub-array using memcpy
+      memcpy(sub_args, args + start, sub_array_size * sizeof(char*));
+      child(**sub_args);
   } else { // Parent process
       if (waitfor) {
           wait(NULL); // Wait for child process to finish if necessary
       }
       printf("Parent exiting\n"); // Parent done
     }
-
-
 }
 
 // ============================================================================
@@ -163,7 +163,7 @@ bool parse(char **args, int start, int *end)
     }
     ++i;
   }
-  *end = i - 1;
+  *end = i;
   return true;
 }
 
@@ -178,7 +178,7 @@ char **tokenize(char *line)
   char *token = strtok(line, " \t\n\r");
   int i = 0;
   while (token != NULL){
-    tokens[i] = strdup(token);
+    tokens[i] = token;
     token = strtok(NULL, " \t\n\r");
     i++;
   }
@@ -200,7 +200,6 @@ int main()
     printf(PROMPT);   // osh>
     fflush(stdout);   // because no "\n"
     fetchline(&line); // fetch NUL-terminated line
-
     if (equal(line, ""))
       continue; // blank line
 
@@ -218,13 +217,13 @@ int main()
     // process lines
     char **args = tokenize(*line); // split string into tokens
     // loop over to find chunk of independent commands and execute
-    while (args[start] != NULL)
-    {
-      int *end;
-      bool waitfor = parse(**args, start, *end);// parse() checks if current command ends with ";" or "&"  or nothing. if it does not end with anything treat it as ; or blocking call. Parse updates "end" to the index of the last token before ; or & or simply nothing
-      doCommand(args, start, end, waitfor);    // execute sub-command
-      start = end + 2;                         // next command
-    }
+    // while (args[start] != NULL)
+    // {
+    //   int *end;
+    //   bool waitfor = parse(**args, start, *end);// parse() checks if current command ends with ";" or "&"  or nothing. if it does not end with anything treat it as ; or blocking call. Parse updates "end" to the index of the last token before ; or & or simply nothing
+    //   doCommand(args, start, end, waitfor);    // execute sub-command
+    //   start = end + 2;                         // next command
+    // }
     start = 0;              // next line
     // remember current command into history
   }
