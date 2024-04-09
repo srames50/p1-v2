@@ -174,13 +174,14 @@ bool parse(char **args, int start, int *end)
 // ============================================================================
 char **tokenize(char *line)
 {
-  char **tokens = malloc(BUF_SIZE * sizeof(char *));
-  char *token = strtok(line, " \t\n\r");
+  char **tokens = (char **)malloc(BUF_SIZE * sizeof(char *));
+  char *token;
   int i = 0;
+  token = strtok(line, " ");
   while (token != NULL){
-    tokens[i] = token;
-    token = strtok(NULL, " \t\n\r");
+    tokens[i] = strdup(token);
     i++;
+    token = strtok(NULL, " ");
   }
   tokens[i] == NULL;
   return tokens;
@@ -213,9 +214,8 @@ int main()
     {
       // gethistory
     }
-    
     // process lines
-    char **args = tokenize(*line); // split string into tokens
+    char **args = tokenize(line); // split string into tokens
     // loop over to find chunk of independent commands and execute
     // while (args[start] != NULL)
     // {
@@ -224,7 +224,8 @@ int main()
     //   doCommand(args, start, end, waitfor);    // execute sub-command
     //   start = end + 2;                         // next command
     // }
-    start = 0;              // next line
+    start = 0; 
+               // next line
     // remember current command into history
   }
   return 0;
