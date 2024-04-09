@@ -3,7 +3,7 @@
 #include <stdio.h>   //perror
 #include <unistd.h>  //fork, pipe
 #include <sys/wait.h>   //wait
-//test
+#include <sys/types.h>
 #include <assert.h>  // assert
 #include <fcntl.h>   // O_RDWR, O_CREAT
 #include <stdbool.h> // bool
@@ -16,7 +16,7 @@
 #define PROMPT "osh> "
 
 const int BUF_SIZE = 4096; // constant variable
-
+char hist[MAXLINE + 2];
 bool equal(char *a, char *b) { return (strcmp(a, b) == 0); }
 
 // read a line from console
@@ -36,55 +36,12 @@ int fetchline(char **line) {
 // on failure.  On success, does not return to caller.
 // ============================================================================
 
-int child(char **args)
-{
-  int i = 0;
-  while (args[i] != NULL)
-  {
-    if (equal(args[i], ">"))
-    {
-      // open the corresponding file and use dup to direct stdout to file
-      int fd = open(args[i + 1], O_WRONLY | O_CREAT | O_TRUNC, 0644); 
-      if(fd == -1){
-        perror("error opening file");
-        exit(EXIT_FAILURE);
-      }
-      if(dup2(fd, 1) == -1){
-        perror("error in dup2");
-        exit(EXIT_FAILURE);
-      }
-      close(fd);
-      return i;
-     
-    }
-    else if (equal(args[i], "<"))
-    {
-      // open the corresponding file and use dup to pull stdin from file
-      int fd = open(args[i + 1], O_RDONLY);
-      if(fd == -1){
-        perror("error opening file");
-        exit(EXIT_FAILURE);
-      }
-      if(dup2(fd, 0) == -1){
-        perror("error in dup2");
-        exit(EXIT_FAILURE);
-      }
-      close(fd);
-      return i;
-    }
-    else if (equal(args[i], "|"))
-    { 
-     doPipe(args, i);
-    }
-    else
-    {
-      ++i;
-    }
-  }
-
-  // call execvp on prepared arguments after while loop ends. You can modify arguments as you loop over the arguments above.
-  execvp(args[0], args);
-  return -1;
+int child(char **args) {
+    // Execute command
+    execvp(args[0], args);
+    perror("execvp error");
+    exit(EXIT_FAILURE);
+    return -1;
 }
 
 // ============================================================================
@@ -98,28 +55,29 @@ int child(char **args)
 // ============================================================================
 void doCommand(char **args, int start, int end, bool waitfor)
 {
-// you will have your classic fork() like implementation here. 
-// always execute your commands in child. so pass in arguments there 
-// based on waitfor flag, in parent implement wait or not wait  based on & or ;  
+    pid_t pid;
+    pid = fork();
+ if (pid < 0) {
+   perror("Error during fork");
+   exit(EXIT_FAILURE);
+ }
 
-  // no pipe, regular command
-  pid_t pid = fork();
-  if (pid < 0) {
-      perror("Error during fork");
-      exit(EXIT_FAILURE);
-  } else if (pid == 0) { // Child process
-      int sub_array_size = end - start + 1;
-      // Allocate memory for the sub-array
-      char **sub_args = (char *)malloc(sub_array_size * sizeof(char*));
-      // Copy elements from the original array to the sub-array using memcpy
-      memcpy(sub_args, args + start, sub_array_size * sizeof(char*));
-      child(**sub_args);
-  } else { // Parent process
-      if (waitfor) {
-          wait(NULL); // Wait for child process to finish if necessary
+ if (pid == 0) {
+   // Child
+   int sub_array_size = end - start + 1;
+    // Allocate memory for the sub-array
+    char **sub_args = (char *)malloc(sub_array_size * sizeof(char*));
+    // Copy elements from the original array to the sub-array using memcpy
+    memcpy(sub_args, args + start, sub_array_size * sizeof(char*));
+    child(sub_args);
+   
+ } else {
+   //Parent
+   if (waitfor) {
+        wait(NULL); // Wait for child process to finish if necessary
       }
-      printf("Parent exiting\n"); // Parent done
-    }
+      printf("Parent exiting\n");
+ }
 }
 
 // ============================================================================
@@ -152,18 +110,18 @@ int doPipe(char **args, int pipei)
 bool parse(char **args, int start, int *end)
 {
   int i = start;
-  while(args[i] != NULL){
-    if(strcmp(args[i], '&') || strcmp(args[i], ';')){
+  while (args[i] != NULL) {
+    if (strcmp(args[i], "&") == 0 || strcmp(args[i], ";") == 0) {
       *end = i - 1;
-      if(args[i] == ';'){
-        return true;
-      }else{
-        return false;
+      if (strcmp(args[i], ";") == 0) {
+          return true;
+      } else {
+          return false;
       }
     }
     ++i;
   }
-  *end = i;
+  *end = i - 1;
   return true;
 }
 
@@ -185,6 +143,15 @@ char **tokenize(char *line)
   }
   tokens[i] == NULL;
   return tokens;
+}
+//ascii art
+void printAsciiArt()
+{
+    printf("  |\\_/|        ****************************     (\\_/)\n");
+    printf(" / @ @ \\       *  \"Purrrfectly pleasant\"  *    (='.'=)\n");
+    printf("( > º < )      *     Shyam Ramesh         *    (\")_(\")\n");
+    printf(" `>>x<<´       *        CSS430            *\n");
+    printf(" /  O  \\       ****************************\n\n");
 }
 
 // ============================================================================
@@ -209,21 +176,30 @@ int main()
       should_run = false;
       continue;
     }
-
+    if (equal(line, "ascii")){
+      printAsciiArt();
+    }
     if (equal(line, "!!"))
     {
-      // gethistory
+      if (strlen(hist) == 0)
+        {
+            printf("No commands in history.\n");
+            continue;
+        }
+        printf("Executing last command: %s\n", hist);
+        strcpy(line, hist);
     }
+    strncpy(hist, line, MAXLINE); 
     // process lines
     char **args = tokenize(line); // split string into tokens
     // loop over to find chunk of independent commands and execute
-    // while (args[start] != NULL)
-    // {
-    //   int *end;
-    //   bool waitfor = parse(**args, start, *end);// parse() checks if current command ends with ";" or "&"  or nothing. if it does not end with anything treat it as ; or blocking call. Parse updates "end" to the index of the last token before ; or & or simply nothing
-    //   doCommand(args, start, end, waitfor);    // execute sub-command
-    //   start = end + 2;                         // next command
-    // }
+    while (args[start] != NULL)
+    {
+      int end;
+      bool waitfor = parse(args, start, &end);// parse() checks if current command ends with ";" or "&"  or nothing. if it does not end with anything treat it as ; or blocking call. Parse updates "end" to the index of the last token before ; or & or simply nothing
+      doCommand(args, start, end, waitfor);    // execute sub-command
+      start = end + 2;                         // next command
+    }
     start = 0; 
                // next line
     // remember current command into history
