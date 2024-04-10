@@ -37,11 +37,47 @@ int fetchline(char **line) {
 // ============================================================================
 
 int child(char **args) {
-    // Execute command
-    execvp(args[0], args);
-    perror("execvp error");
-    exit(EXIT_FAILURE);
-    return -1;
+  char *input_file = NULL;
+  char *output_file = NULL;
+  // Parse the arguments for input/output redirection
+  for (int i = 0; args[i] != NULL; i++) {
+      if (strcmp(args[i], ">") == 0) {
+        output_file = args[i + 1];
+        args[i] = NULL; // Nullify ">" to mark the end of command
+        output_file = open(args[i + 1], O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (output_file == -1)
+        {
+        fprintf(stderr, "Error opening file for writing\n");
+        return -1;
+      }    
+      // Redirect stdout to the file
+      dup2(output_file, STDOUT_FILENO);
+
+      // Remove ">" and the filename from the arguments list
+      args[i] = NULL;
+      args[i + 1] = NULL;
+          break;
+      } else if (strcmp(args[i], "<") == 0) {
+          input_file = args[i + 1];
+          args[i] = NULL; // Nullify "<" to mark the end of command
+          int fd_input = open(input_file, O_RDONLY);
+          if (fd_input < 0) {
+              perror("Input file open failed");
+              exit(EXIT_FAILURE);
+          }
+          dup2(fd_input, STDIN_FILENO); // Redirect stdin to input file
+          close(fd_input); // Close file descriptor
+          break;
+      } else if (strcmp(args[i], "|") == 0){ 
+          // Call the doPipe function
+          doPipe(args, i);
+          return 0; // No need to proceed further in this case
+        }
+  }
+  // Execute command
+  execvp(args[0], args);
+  perror("execvp error");
+  exit(EXIT_FAILURE);
 }
 
 // ============================================================================
@@ -75,8 +111,7 @@ void doCommand(char **args, int start, int end, bool waitfor)
    //Parent
    if (waitfor) {
         wait(NULL); // Wait for child process to finish if necessary
-      }
-      printf("Parent exiting\n");
+    }
  }
 }
 
@@ -91,9 +126,48 @@ void doCommand(char **args, int start, int end, bool waitfor)
 //
 // The parent will write, via a pipe, to the child
 // ============================================================================
-int doPipe(char **args, int pipei)
-{
+int doPipe(char **args, int pipei){
+    int pipefd[2];
+    if(pipe(pipefd) < 0){
+      perror("Error creating pipe ~ dopipe");
+      exit(EXIT_FAILURE);
+    }
 
+    //fork child process
+    pid_t pid = fork();
+    if(pid == -1){
+      perror("Error forking child ~ dopipe");
+      exit(EXIT_FAILURE);
+    }
+
+    if(pid == 0){
+      close(pipefd[0]); // close the read end of the pipe
+      dup2(pipefd[1], STDOUT_FILENO); // Redirect stdout to the write end of the pipe
+      close(pipefd[1]); // close the write end of the pipe
+
+      char **commandArgs = malloc((pipei + 1) * sizeof(char *)); // create a new array to hold command and args
+
+      int i = 0;
+      while (equal(args[i], "|") == 0) {
+        commandArgs[i] = strdup(args[i]);
+        i++;
+      }
+      commandArgs[pipei] = NULL;
+
+      execvp(commandArgs[0], commandArgs); // execute the command
+
+    }else {
+      close(pipefd[1]); // Close the write end of the pipe
+
+      dup2(pipefd[0], STDIN_FILENO); // Redirect stdin to the read end of the pipe
+
+      close(pipefd[0]); // Close the read end of the pipe
+
+      execvp(args[pipei + 1], &args[pipei + 1]); // Execute the command after the pipe symbol
+
+      waitpid(pid, NULL, 0); // Wait for child process to finish
+    }
+    return -1;
 }
 
 // ============================================================================
@@ -111,18 +185,18 @@ bool parse(char **args, int start, int *end)
 {
   int i = start;
   while (args[i] != NULL) {
-    if (strcmp(args[i], "&") == 0 || strcmp(args[i], ";") == 0) {
-      *end = i - 1;
-      if (strcmp(args[i], ";") == 0) {
-          return true;
+    if (strcmp(args[i], ";") == 0 || strcmp(args[i], "&") == 0) {
+      *end = i - 1; // Set end index to the previous argument
+      if (strcmp(args[i], "&") == 0) {
+        return false; // Return false for background execution
       } else {
-          return false;
+        return true; // Return true for foreground execution 
       }
     }
-    ++i;
+    i++;
   }
-  *end = i - 1;
-  return true;
+  *end = i - 1; // Set end index to the last argument
+  return true; // Return true for end-of-line
 }
 
 // ============================================================================
@@ -198,11 +272,10 @@ int main()
       int end;
       bool waitfor = parse(args, start, &end);// parse() checks if current command ends with ";" or "&"  or nothing. if it does not end with anything treat it as ; or blocking call. Parse updates "end" to the index of the last token before ; or & or simply nothing
       doCommand(args, start, end, waitfor);    // execute sub-command
+      wait(NULL);
       start = end + 2;                         // next command
     }
     start = 0; 
-               // next line
-    // remember current command into history
   }
   return 0;
 }
